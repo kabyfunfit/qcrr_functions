@@ -1,4 +1,4 @@
-import { Client, Databases, Users, ID, Query } from 'node-appwrite';
+import { Client, Databases, Query, ID } from 'node-appwrite';
 
 export default async ({ req, res, log, error }) => {
   const client = new Client()
@@ -7,7 +7,6 @@ export default async ({ req, res, log, error }) => {
     .setKey(process.env.APPWRITE_API_KEY);
 
   const databases = new Databases(client);
-  const users = new Users(client);
 
   // Parse Payload
   let payload;
@@ -18,13 +17,14 @@ export default async ({ req, res, log, error }) => {
   }
 
   const { email, name } = payload;
-  // Note: This uses Server Time (UTC). Consider hardcoding 'en-US' with timeZone: 'America/Phoenix' if needed.
+  // Keep the timezone fix so dates are correct in AZ
   const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Phoenix' });
   
   const DB_ID = '697e7098000a1a51bb73';
   const RSVP_COLLECTION = 'rsvp';
 
   try {
+    // 1. Check if they exist
     const result = await databases.listDocuments(DB_ID, RSVP_COLLECTION, [
       Query.equal('email', email)
     ]);
@@ -33,39 +33,34 @@ export default async ({ req, res, log, error }) => {
     let finalStatus = 'checkin_existing';
 
     if (result.total > 0) {
-      // === RETURNING PLAYER (FAST PATH) ===
+      // === RETURNING PLAYER ===
       const doc = result.documents[0];
       userName = doc.name;
       
+      // If already checked in today, just stop
       if (doc.attendance_log && doc.attendance_log.includes(today)) {
         return res.json({ success: true, status: 'already_checked_in', name: userName });
       }
       
+      // Add today to log
       const newLog = doc.attendance_log ? [...doc.attendance_log, today] : [today];
       await databases.updateDocument(DB_ID, RSVP_COLLECTION, doc.$id, { attendance_log: newLog });
       
     } else {
-      // === NEW PLAYER (SLOW PATH - Runs Once) ===
+      // === NEW PLAYER ===
       if (!name) return res.json({ success: false, status: 'needs_name' });
       
-      // 1. Create DB Record
+      // Just save them to the DB. DO NOT create a login account (too slow).
       await databases.createDocument(DB_ID, RSVP_COLLECTION, ID.unique(), {
           email, name, attendance_log: [today], can_reserve: false, is_member: false
       });
       finalStatus = 'checkin_new';
-
-      // 2. Create Auth Account (MOVED HERE)
-      // We only try this if we know they are new to the system.
-      try {
-        await users.create(ID.unique(), email, undefined, 'Pickleball2026!', userName);
-      } catch (err) {
-        // Ignore errors if account exists
-      }
     }
 
     return res.json({ success: true, status: finalStatus, name: userName });
 
   } catch (err) {
+    error(err.message); // Log the error to Appwrite console
     return res.json({ success: false, error: err.message });
   }
 };
