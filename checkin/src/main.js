@@ -18,7 +18,8 @@ export default async ({ req, res, log, error }) => {
   }
 
   const { email, name } = payload;
-  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Note: This uses Server Time (UTC). Consider hardcoding 'en-US' with timeZone: 'America/Phoenix' if needed.
+  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Phoenix' });
   
   const DB_ID = '697e7098000a1a51bb73';
   const RSVP_COLLECTION = 'rsvp';
@@ -32,6 +33,7 @@ export default async ({ req, res, log, error }) => {
     let finalStatus = 'checkin_existing';
 
     if (result.total > 0) {
+      // === RETURNING PLAYER (FAST PATH) ===
       const doc = result.documents[0];
       userName = doc.name;
       
@@ -41,18 +43,25 @@ export default async ({ req, res, log, error }) => {
       
       const newLog = doc.attendance_log ? [...doc.attendance_log, today] : [today];
       await databases.updateDocument(DB_ID, RSVP_COLLECTION, doc.$id, { attendance_log: newLog });
+      
     } else {
+      // === NEW PLAYER (SLOW PATH - Runs Once) ===
       if (!name) return res.json({ success: false, status: 'needs_name' });
       
+      // 1. Create DB Record
       await databases.createDocument(DB_ID, RSVP_COLLECTION, ID.unique(), {
           email, name, attendance_log: [today], can_reserve: false, is_member: false
       });
       finalStatus = 'checkin_new';
-    }
 
-    try {
+      // 2. Create Auth Account (MOVED HERE)
+      // We only try this if we know they are new to the system.
+      try {
         await users.create(ID.unique(), email, undefined, 'Pickleball2026!', userName);
-    } catch (err) {}
+      } catch (err) {
+        // Ignore errors if account exists
+      }
+    }
 
     return res.json({ success: true, status: finalStatus, name: userName });
 
