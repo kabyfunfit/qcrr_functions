@@ -1,0 +1,13 @@
+{
+  "name": "rsvp_manager",
+  "version": "1.0.0",
+  "description": "Handles RSVP logic for returning and new players",
+  "main": "src/main.js",
+  "type": "module",
+  "dependencies": {
+    "node-appwrite": "^11.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
